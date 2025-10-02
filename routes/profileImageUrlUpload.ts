@@ -18,6 +18,23 @@ export function profileImageUrlUpload () {
     if (req.body.imageUrl !== undefined) {
       const url = req.body.imageUrl
       if (url.match(/(.)*solve\/challenges\/server-side(.)*/) !== null) req.app.locals.abused_ssrf_bug = true
+      const allowedHostnames = [
+        'imgur.com',
+        'i.imgur.com',
+        'cdn.example.com'
+        // add more trusted image hostnames as needed
+      ]
+      let parsedUrl
+      try {
+        parsedUrl = new URL(url)
+      } catch (err) {
+        next(new Error('Invalid image URL'))
+        return
+      }
+      if (!allowedHostnames.includes(parsedUrl.hostname)) {
+        next(new Error('Image hosting domain not allowed'))
+        return
+      }
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
         try {
