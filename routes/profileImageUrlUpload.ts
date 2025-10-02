@@ -25,6 +25,34 @@ export function profileImageUrlUpload () {
         'cdn.example.com'
         // add more trusted image hostnames as needed
       ]
+      // Define URL templates for each allowed host
+      const trustedUrlTemplates: Record<string, (parsedUrl: URL) => string | null> = {
+        'imgur.com': (parsedUrl: URL) => {
+          // Example: https://imgur.com/{imageId}
+          const matches = /^\/([a-zA-Z0-9]+)(\.[a-z]{3,4})?$/.exec(parsedUrl.pathname)
+          if (matches && matches[1]) {
+            return `https://imgur.com/${matches[1]}${matches[2] ?? ''}`
+          }
+          return null
+        },
+        'i.imgur.com': (parsedUrl: URL) => {
+          // Example: https://i.imgur.com/{imageId}.jpg
+          const matches = /^\/([a-zA-Z0-9]+)\.(jpg|jpeg|png|svg|gif)$/i.exec(parsedUrl.pathname)
+          if (matches) {
+            return `https://i.imgur.com/${matches[1]}.${matches[2]}`
+          }
+          return null
+        },
+        'cdn.example.com': (parsedUrl: URL) => {
+          // For demonstration: allow files under /images/
+          const matches = /^\/images\/([a-zA-Z0-9_-]+)\.(jpg|jpeg|png|svg|gif)$/i.exec(parsedUrl.pathname)
+          if (matches) {
+            return `https://cdn.example.com/images/${matches[1]}.${matches[2]}`
+          }
+          return null
+        }
+        // Add more host template functions as needed
+      }
       let parsedUrl
       try {
         parsedUrl = new URL(url)
@@ -44,10 +72,17 @@ export function profileImageUrlUpload () {
         next(new Error('Only http(s) URLs are allowed'))
         return
       }
+      // Build the trusted fetch URL using the host template
+      const fetchUrlBuilder = trustedUrlTemplates[normalizedHostname]
+      const safeFetchUrl = fetchUrlBuilder ? fetchUrlBuilder(parsedUrl) : null
+      if (!safeFetchUrl) {
+        next(new Error('Invalid image identifier or path for trusted host'))
+        return
+      }
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
         try {
-          const response = await fetch(url)
+          const response = await fetch(safeFetchUrl)
           if (!response.ok || !response.body) {
             throw new Error('url returned a non-OK status code or an empty body')
           }
@@ -58,8 +93,8 @@ export function profileImageUrlUpload () {
         } catch (error) {
           try {
             const user = await UserModel.findByPk(loggedInUser.data.id)
-            await user?.update({ profileImage: url })
-            logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(error)}; using image link directly`)
+            await user?.update({ profileImage: safeFetchUrl })
+            logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(error)}; using sanitized image link instead`)
           } catch (error) {
             next(error)
             return
