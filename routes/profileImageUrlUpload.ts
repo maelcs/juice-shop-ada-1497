@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
+import punycode from 'punycode'
 import { type Request, type Response, type NextFunction } from 'express'
 
 import * as security from '../lib/insecurity'
@@ -31,8 +32,16 @@ export function profileImageUrlUpload () {
         next(new Error('Invalid image URL'))
         return
       }
-      if (!allowedHostnames.includes(parsedUrl.hostname)) {
+      // Normalize and validate the hostname using punycode for IDN safety
+      const normalizedHostname = punycode.toASCII(parsedUrl.hostname).toLowerCase()
+      const allowedHostnamesNormalized = allowedHostnames.map(h => punycode.toASCII(h).toLowerCase())
+      if (!allowedHostnamesNormalized.includes(normalizedHostname)) {
         next(new Error('Image hosting domain not allowed'))
+        return
+      }
+      // Ensure only http(s) URLs are allowed
+      if (!/^https?:$/.test(parsedUrl.protocol)) {
+        next(new Error('Only http(s) URLs are allowed'))
         return
       }
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
